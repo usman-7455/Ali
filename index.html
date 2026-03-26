@@ -1,204 +1,225 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
   <title>HieraCost — Inventory Management</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap"
+    rel="stylesheet" />
 </head>
+
 <body>
 
-<!-- ===== SIDEBAR ===== -->
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <div class="logo">
-      <span class="logo-icon">⬡</span>
-      <span class="logo-text">HieraCost</span>
+  <!-- ===== SIDEBAR BACKDROP (mobile) ===== -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <span class="logo-icon">⬡</span>
+        <span class="logo-text">HieraCost</span>
+      </div>
+      <button class="sidebar-toggle" id="sidebarToggle" title="Toggle Sidebar">‹</button>
     </div>
-    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle Sidebar">‹</button>
+
+    <nav class="sidebar-nav">
+      <button class="nav-btn active" data-view="dashboard">
+        <span class="nav-icon">▦</span><span class="nav-label">Dashboard</span>
+      </button>
+      <button class="nav-btn" data-view="trucks">
+        <span class="nav-icon">◈</span><span class="nav-label">Trucks</span>
+      </button>
+      <button class="nav-btn" data-view="customers">
+        <span class="nav-icon">◉</span><span class="nav-label">Customers</span>
+      </button>
+      <button class="nav-btn" data-view="mills">
+        <span class="nav-icon">◎</span><span class="nav-label">Mills</span>
+      </button>
+      <button class="nav-btn" data-view="sales">
+        <span class="nav-icon">◆</span><span class="nav-label">Sales</span>
+      </button>
+      <button class="nav-btn" data-view="profit">
+        <span class="nav-icon">◇</span><span class="nav-label">Profit Report</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="version-tag">v1.1 · Weight Sales</div>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN ===== -->
+  <main class="main-content" id="mainContent">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle Menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="topbar-left">
+        <h1 class="page-title" id="pageTitle">Dashboard</h1>
+        <div class="breadcrumb" id="breadcrumb"></div>
+      </div>
+      <div class="topbar-right">
+        <div class="status-badge">
+          <span class="status-dot"></span> Live
+        </div>
+      </div>
+    </header>
+
+    <!-- VIEWS -->
+    <div class="view-container">
+
+      <!-- ======================== DASHBOARD ======================== -->
+      <section class="view active" id="view-dashboard">
+        <div class="stats-grid" id="dashboardStats"></div>
+        <div class="dash-grid">
+          <div class="dash-card" id="recentTrucks"></div>
+          <div class="dash-card" id="recentSales"></div>
+        </div>
+      </section>
+
+      <!-- ======================== TRUCKS ======================== -->
+      <section class="view" id="view-trucks">
+        <div class="toolbar">
+          <button class="btn btn-primary" id="addTruckBtn">+ Add Truck</button>
+        </div>
+        <div class="card-list" id="truckList"></div>
+
+        <!-- Truck Detail Panel -->
+        <div class="detail-panel hidden" id="truckDetail">
+          <div class="detail-header">
+            <button class="back-btn" id="backToTrucks">← Trucks</button>
+            <h2 class="detail-title" id="truckDetailTitle"></h2>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-secondary" id="addLotBtn">+ Add Lot</button>
+          </div>
+          <div class="card-list" id="lotList"></div>
+        </div>
+
+        <!-- Lot Detail Panel -->
+        <div class="detail-panel hidden" id="lotDetail">
+          <div class="detail-header">
+            <button class="back-btn" id="backToLots">← Lots</button>
+            <h2 class="detail-title" id="lotDetailTitle"></h2>
+            <div class="cost-badge" id="lotCostBadge"></div>
+          </div>
+          <div class="lot-info-grid" id="lotInfoGrid"></div>
+          <div class="toolbar">
+            <button class="btn btn-secondary" id="addItemBtn">+ Add Item</button>
+            <button class="btn btn-ghost" id="addLotProcessingBtn">+ Processing Record</button>
+          </div>
+          <div class="processing-list" id="lotProcessingList"></div>
+          <div class="card-list" id="itemList"></div>
+        </div>
+
+        <!-- Item Detail Panel -->
+        <div class="detail-panel hidden" id="itemDetail">
+          <div class="detail-header">
+            <button class="back-btn" id="backToItems">← Items</button>
+            <h2 class="detail-title" id="itemDetailTitle"></h2>
+            <div class="cost-badge" id="itemCostBadge"></div>
+          </div>
+          <div class="item-info-grid" id="itemInfoGrid"></div>
+          <div class="toolbar">
+            <button class="btn btn-secondary" id="addSubitemBtn">+ Add Subitem</button>
+            <button class="btn btn-ghost" id="addItemProcessingBtn">+ Processing Record</button>
+            <button class="btn btn-accent" id="sellItemBtn">⬡ Sell Item</button>
+          </div>
+          <div class="processing-list" id="itemProcessingList"></div>
+          <div class="card-list" id="subitemList"></div>
+          <div class="sale-info" id="itemSaleInfo"></div>
+        </div>
+      </section>
+
+      <!-- ======================== CUSTOMERS ======================== -->
+      <section class="view" id="view-customers">
+        <div class="toolbar">
+          <button class="btn btn-primary" id="addCustomerBtn">+ Add Customer</button>
+        </div>
+        <div class="card-list" id="customerList"></div>
+      </section>
+
+      <!-- ======================== MILLS ======================== -->
+      <section class="view" id="view-mills">
+        <div class="toolbar">
+          <button class="btn btn-primary" id="addMillBtn">+ Add Mill</button>
+        </div>
+        <div class="card-list" id="millList"></div>
+      </section>
+
+      <!-- ======================== SALES ======================== -->
+      <section class="view" id="view-sales">
+        <div class="card-list" id="salesList"></div>
+      </section>
+
+      <!-- ======================== PROFIT ======================== -->
+      <section class="view" id="view-profit">
+        <div class="profit-controls">
+          <div class="form-group">
+            <label>Entity Type</label>
+            <select id="profitEntityType" class="input">
+              <option value="truck">Truck</option>
+              <option value="lot">Lot</option>
+              <option value="item">Item</option>
+              <option value="customer">Customer</option>
+              <option value="mill">Mill</option>
+            </select>
+          </div>
+
+          <!-- SEARCH INPUT -->
+          <div class="form-group">
+            <label>Search Entity</label>
+            <input type="text" id="profitEntitySearch" class="input" placeholder="Type to search..."
+              autocomplete="off" />
+            <div id="profitEntitySuggestions" class="suggestions-list"></div>
+          </div>
+
+          <!-- Hidden select that holds the actual selected ID -->
+          <select id="profitEntityId" class="hidden"></select>
+
+          <div class="form-group">
+            <label>Pending Payments</label>
+            <select id="profitIncludePending" class="input">
+              <option value="true">Include Pending</option>
+              <option value="false">Exclude Pending</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="calcProfitBtn">Calculate</button>
+        </div>
+        <div class="profit-result hidden" id="profitResult"></div>
+      </section>
+
+    </div><!-- end view-container -->
+  </main>
+
+  <!-- ======================== MODAL ======================== -->
+  <div class="modal-overlay hidden" id="modalOverlay">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">Modal</h3>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="modalCancel">Cancel</button>
+        <button class="btn btn-primary" id="modalConfirm">Confirm</button>
+      </div>
+    </div>
   </div>
 
-  <nav class="sidebar-nav">
-    <button class="nav-btn active" data-view="dashboard">
-      <span class="nav-icon">▦</span><span class="nav-label">Dashboard</span>
-    </button>
-    <button class="nav-btn" data-view="trucks">
-      <span class="nav-icon">◈</span><span class="nav-label">Trucks</span>
-    </button>
-    <button class="nav-btn" data-view="customers">
-      <span class="nav-icon">◉</span><span class="nav-label">Customers</span>
-    </button>
-    <button class="nav-btn" data-view="mills">
-      <span class="nav-icon">◎</span><span class="nav-label">Mills</span>
-    </button>
-    <button class="nav-btn" data-view="sales">
-      <span class="nav-icon">◆</span><span class="nav-label">Sales</span>
-    </button>
-    <button class="nav-btn" data-view="profit">
-      <span class="nav-icon">◇</span><span class="nav-label">Profit Report</span>
-    </button>
-  </nav>
+  <!-- ======================== TOAST ======================== -->
+  <div class="toast-container" id="toastContainer"></div>
 
-  <div class="sidebar-footer">
-    <div class="version-tag">v1.1 · Weight Sales</div>
-  </div>
-</aside>
-
-<!-- ===== MAIN ===== -->
-<main class="main-content" id="mainContent">
-
-  <!-- TOP BAR -->
-  <header class="topbar">
-    <div class="topbar-left">
-      <h1 class="page-title" id="pageTitle">Dashboard</h1>
-      <div class="breadcrumb" id="breadcrumb"></div>
-    </div>
-    <div class="topbar-right">
-      <div class="status-badge">
-        <span class="status-dot"></span> Live
-      </div>
-    </div>
-  </header>
-
-  <!-- VIEWS -->
-  <div class="view-container">
-
-    <!-- ======================== DASHBOARD ======================== -->
-    <section class="view active" id="view-dashboard">
-      <div class="stats-grid" id="dashboardStats"></div>
-      <div class="dash-grid">
-        <div class="dash-card" id="recentTrucks"></div>
-        <div class="dash-card" id="recentSales"></div>
-      </div>
-    </section>
-
-    <!-- ======================== TRUCKS ======================== -->
-    <section class="view" id="view-trucks">
-      <div class="toolbar">
-        <button class="btn btn-primary" id="addTruckBtn">+ Add Truck</button>
-      </div>
-      <div class="card-list" id="truckList"></div>
-
-      <!-- Truck Detail Panel -->
-      <div class="detail-panel hidden" id="truckDetail">
-        <div class="detail-header">
-          <button class="back-btn" id="backToTrucks">← Trucks</button>
-          <h2 class="detail-title" id="truckDetailTitle"></h2>
-        </div>
-        <div class="toolbar">
-          <button class="btn btn-secondary" id="addLotBtn">+ Add Lot</button>
-        </div>
-        <div class="card-list" id="lotList"></div>
-      </div>
-
-      <!-- Lot Detail Panel -->
-      <div class="detail-panel hidden" id="lotDetail">
-        <div class="detail-header">
-          <button class="back-btn" id="backToLots">← Lots</button>
-          <h2 class="detail-title" id="lotDetailTitle"></h2>
-          <div class="cost-badge" id="lotCostBadge"></div>
-        </div>
-        <div class="lot-info-grid" id="lotInfoGrid"></div>
-        <div class="toolbar">
-          <button class="btn btn-secondary" id="addItemBtn">+ Add Item</button>
-          <button class="btn btn-ghost" id="addLotProcessingBtn">+ Processing Record</button>
-        </div>
-        <div class="processing-list" id="lotProcessingList"></div>
-        <div class="card-list" id="itemList"></div>
-      </div>
-
-      <!-- Item Detail Panel -->
-      <div class="detail-panel hidden" id="itemDetail">
-        <div class="detail-header">
-          <button class="back-btn" id="backToItems">← Items</button>
-          <h2 class="detail-title" id="itemDetailTitle"></h2>
-          <div class="cost-badge" id="itemCostBadge"></div>
-        </div>
-        <div class="item-info-grid" id="itemInfoGrid"></div>
-        <div class="toolbar">
-          <button class="btn btn-secondary" id="addSubitemBtn">+ Add Subitem</button>
-          <button class="btn btn-ghost" id="addItemProcessingBtn">+ Processing Record</button>
-          <button class="btn btn-accent" id="sellItemBtn">⬡ Sell Item</button>
-        </div>
-        <div class="processing-list" id="itemProcessingList"></div>
-        <div class="card-list" id="subitemList"></div>
-        <div class="sale-info" id="itemSaleInfo"></div>
-      </div>
-    </section>
-
-    <!-- ======================== CUSTOMERS ======================== -->
-    <section class="view" id="view-customers">
-      <div class="toolbar">
-        <button class="btn btn-primary" id="addCustomerBtn">+ Add Customer</button>
-      </div>
-      <div class="card-list" id="customerList"></div>
-    </section>
-
-    <!-- ======================== MILLS ======================== -->
-    <section class="view" id="view-mills">
-      <div class="toolbar">
-        <button class="btn btn-primary" id="addMillBtn">+ Add Mill</button>
-      </div>
-      <div class="card-list" id="millList"></div>
-    </section>
-
-    <!-- ======================== SALES ======================== -->
-    <section class="view" id="view-sales">
-      <div class="card-list" id="salesList"></div>
-    </section>
-
-    <!-- ======================== PROFIT ======================== -->
-    <section class="view" id="view-profit">
-      <div class="profit-controls">
-        <div class="form-group">
-          <label>Entity Type</label>
-          <select id="profitEntityType" class="input">
-            <option value="truck">Truck</option>
-            <option value="lot">Lot</option>
-            <option value="item">Item</option>
-            <option value="customer">Customer</option>
-            <option value="mill">Mill</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Select Entity</label>
-          <select id="profitEntityId" class="input"></select>
-        </div>
-        <div class="form-group">
-          <label>Pending Payments</label>
-          <select id="profitIncludePending" class="input">
-            <option value="true">Include Pending</option>
-            <option value="false">Exclude Pending</option>
-          </select>
-        </div>
-        <button class="btn btn-primary" id="calcProfitBtn">Calculate</button>
-      </div>
-      <div class="profit-result hidden" id="profitResult"></div>
-    </section>
-
-  </div><!-- end view-container -->
-</main>
-
-<!-- ======================== MODAL ======================== -->
-<div class="modal-overlay hidden" id="modalOverlay">
-  <div class="modal" id="modal">
-    <div class="modal-header">
-      <h3 class="modal-title" id="modalTitle">Modal</h3>
-      <button class="modal-close" id="modalClose">✕</button>
-    </div>
-    <div class="modal-body" id="modalBody"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" id="modalCancel">Cancel</button>
-      <button class="btn btn-primary" id="modalConfirm">Confirm</button>
-    </div>
-  </div>
-</div>
-
-<!-- ======================== TOAST ======================== -->
-<div class="toast-container" id="toastContainer"></div>
-
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
+
 </html>
