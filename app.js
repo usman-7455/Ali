@@ -551,6 +551,21 @@ function fmtDate(dateStr) {
 }
 
 // ============================================================
+// DEBOUNCE UTILITY
+// ============================================================
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// ============================================================
 // TOAST NOTIFICATIONS
 // ============================================================
 function toast(msg, type = 'info') {
@@ -566,6 +581,7 @@ function toast(msg, type = 'info') {
 // MODAL SYSTEM
 // ============================================================
 let modalResolve = null;
+let profitEntitiesCache = []; // Cache for searchable profit entities
 function openModal(title, bodyHTML, confirmText = 'Confirm') {
   return new Promise(resolve => {
     modalResolve = resolve;
@@ -1257,7 +1273,7 @@ function renderProfit() {
   updateProfitEntityOptions();
 }
 
-function updateProfitEntityOptions() {
+/*function updateProfitEntityOptions() {
   const type = document.getElementById('profitEntityType').value;
   const sel = document.getElementById('profitEntityId');
   sel.innerHTML = '';
@@ -1286,6 +1302,151 @@ function updateProfitEntityOptions() {
     opt.textContent = e.displayName || e.name;
     sel.appendChild(opt);
   });
+}*/
+// ============================================================
+// PROFIT ENTITY OPTIONS (SEARCHABLE)
+// ============================================================
+function updateProfitEntityOptions() {
+  const type = document.getElementById('profitEntityType').value;
+  const searchInput = document.getElementById('profitEntitySearch');
+  const suggestionsBox = document.getElementById('profitEntitySuggestions');
+  const hiddenSelect = document.getElementById('profitEntityId');
+
+  // Build entity list with metadata for search
+  let entities = [];
+  if (type === 'truck') {
+    entities = Object.values(DB.trucks).map(e => ({
+      id: e.id,
+      name: e.name,
+      meta: e.description || ''
+    }));
+  } else if (type === 'lot') {
+    for (const t of Object.values(DB.trucks)) {
+      for (const l of Object.values(t.lots)) {
+        const mill = l.mill_id ? DB.mills[l.mill_id] : null;
+        entities.push({
+          id: l.id,
+          name: l.name,
+          meta: `${t.name} · ${mill ? mill.name : 'No mill'}`
+        });
+      }
+    }
+  } else if (type === 'item') {
+    for (const t of Object.values(DB.trucks)) {
+      for (const l of Object.values(t.lots)) {
+        for (const i of Object.values(l.items)) {
+          if (!i.depleted) {
+            entities.push({
+              id: i.id,
+              name: i.name,
+              meta: `${t.name} / ${l.name}`
+            });
+          }
+        }
+      }
+    }
+  } else if (type === 'customer') {
+    entities = Object.values(DB.customers).map(e => ({
+      id: e.id,
+      name: e.name,
+      meta: e.phone || ''
+    }));
+  } else if (type === 'mill') {
+    entities = Object.values(DB.mills).map(e => {
+      const lotCount = Object.values(DB.trucks)
+        .flatMap(t => Object.values(t.lots))
+        .filter(l => l.mill_id === e.id).length;
+      return {
+        id: e.id,
+        name: e.name,
+        meta: `${lotCount} lot${lotCount !== 1 ? 's' : ''} linked`
+      };
+    });
+  }
+  function renderProfitSuggestions(entities) {
+    const suggestionsBox = document.getElementById('profitEntitySuggestions');
+    const searchInput = document.getElementById('profitEntitySearch');
+    const hiddenSelect = document.getElementById('profitEntityId');
+
+    if (entities.length === 0) {
+      suggestionsBox.innerHTML = '<div class="no-results">No matches found</div>';
+      suggestionsBox.classList.add('visible');
+      return;
+    }
+
+    suggestionsBox.innerHTML = entities.map(ent => `
+    <div class="suggestion-item" data-id="${ent.id}" data-name="${ent.name}">
+      <span class="suggestion-name">${ent.name}</span>
+      ${ent.meta ? `<span class="suggestion-meta">${ent.meta}</span>` : ''}
+    </div>
+  `).join('');
+
+    suggestionsBox.classList.add('visible');
+
+    // Click handler for suggestions
+    suggestionsBox.querySelectorAll('.suggestion-item').forEach(div => {
+      div.onclick = () => {
+        const id = div.dataset.id;
+        const name = div.dataset.name;
+        hiddenSelect.value = id;
+        searchInput.value = name;
+        suggestionsBox.classList.remove('visible');
+        // Optional: auto-trigger profit calculation on selection
+        // renderProfitResult();
+      };
+    });
+  }
+
+  // Hide suggestions when clicking outside
+  document.addEventListener('click', (e) => {
+    const searchInput = document.getElementById('profitEntitySearch');
+    const suggestionsBox = document.getElementById('profitEntitySuggestions');
+    if (searchInput && suggestionsBox &&
+      !searchInput.contains(e.target) &&
+      !suggestionsBox.contains(e.target)) {
+      suggestionsBox.classList.remove('visible');
+    }
+  });
+  // Cache entities for filtering
+  profitEntitiesCache = entities;
+
+  // Populate hidden select (used by calculate_profit)
+  hiddenSelect.innerHTML = '';
+  if (entities.length === 0) {
+    hiddenSelect.innerHTML = '<option value="">— None available —</option>';
+    searchInput.value = '';
+    searchInput.placeholder = '— None available —';
+    searchInput.disabled = true;
+    suggestionsBox.classList.remove('visible');
+    suggestionsBox.innerHTML = '';
+    return;
+  }
+
+  entities.forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.name;
+    hiddenSelect.appendChild(opt);
+  });
+
+  // Setup search input
+  searchInput.disabled = false;
+  searchInput.value = '';
+  searchInput.placeholder = `Search ${type}...`;
+
+  // Show all entities initially (limited)
+  renderProfitSuggestions(entities.slice(0, 10));
+
+  // Attach debounced search listener
+  searchInput.oninput = null; // Remove old listeners
+  searchInput.oninput = debounce((e) => {
+    const query = e.target.value.toLowerCase().trim();
+    const filtered = entities.filter(ent =>
+      ent.name.toLowerCase().includes(query) ||
+      (ent.meta && ent.meta.toLowerCase().includes(query))
+    );
+    renderProfitSuggestions(filtered.slice(0, 10));
+  }, 150);
 }
 
 function renderProfitResult() {
@@ -1861,19 +2022,161 @@ function emptyState(icon, text) {
 // ============================================================
 // EVENT BINDINGS
 // ============================================================
+// ============================================================
+// EVENT BINDINGS
+// ============================================================
 function bindEvents() {
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => navigate(btn.dataset.view));
   });
+
   document.getElementById('sidebarToggle').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('collapsed');
   });
+
+  document.getElementById('modalClose').addEventListener('click', () => closeModal(null));
+  document.getElementById('modalCancel').addEventListener('click', () => closeModal(null));
+  document.getElementById('modalConfirm').addEventListener('click', () => closeModal(true));
+
+  document.getElementById('modalOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalOverlay')) closeModal(null);
+  });
+
+  document.getElementById('addTruckBtn').addEventListener('click', addTruck);
+
+  document.getElementById('backToTrucks').addEventListener('click', () => {
+    document.getElementById('truckDetail').classList.add('hidden');
+    document.getElementById('truckList').classList.remove('hidden');
+    document.getElementById('breadcrumb').textContent = '';
+  });
+
+  document.getElementById('addLotBtn').addEventListener('click', addLot);
+
+  document.getElementById('backToLots').addEventListener('click', () => {
+    currentLotId = null;
+    document.getElementById('lotDetail').classList.add('hidden');
+    document.getElementById('truckDetail').classList.remove('hidden');
+  });
+
+  document.getElementById('addLotProcessingBtn').addEventListener('click', () => {
+    addProcessingTo('lot', currentLotId);
+  });
+
+  document.getElementById('addItemBtn').addEventListener('click', addItem);
+
+  document.getElementById('backToItems').addEventListener('click', () => {
+    currentItemId = null;
+    document.getElementById('itemDetail').classList.add('hidden');
+    document.getElementById('lotDetail').classList.remove('hidden');
+    const { lot } = findLot(currentLotId);
+    if (lot) renderLotInfoGrid(lot);
+  });
+
+  document.getElementById('addItemProcessingBtn').addEventListener('click', () => {
+    addProcessingTo('item', currentItemId);
+  });
+
+  document.getElementById('addSubitemBtn').addEventListener('click', addSubitem);
+
+  document.getElementById('sellItemBtn').addEventListener('click', () => {
+    sellEntity('item', currentItemId);
+  });
+
+  document.getElementById('addCustomerBtn').addEventListener('click', addCustomer);
+  document.getElementById('addMillBtn').addEventListener('click', addMill);
+
+  // Profit report: entity type change → refresh options + hide result
+  document.getElementById('profitEntityType').addEventListener('change', () => {
+    updateProfitEntityOptions();
+    document.getElementById('profitResult').classList.add('hidden');
+  });
+
+  // Profit report: calculate button
+  document.getElementById('calcProfitBtn').addEventListener('click', renderProfitResult);
+  // Add this inside bindEvents(), after existing listeners:
+
+  // Mobile sidebar overlay toggle
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+  const sidebar = document.getElementById('sidebar');
+  const sidebarToggle = document.getElementById('sidebarToggle');
+
+  // Toggle sidebar on mobile
+  sidebarToggle.addEventListener('click', () => {
+    if (window.innerWidth <= 768) {
+      sidebar.classList.toggle('active');
+      sidebarOverlay.classList.toggle('active');
+    } else {
+      sidebar.classList.toggle('collapsed');
+    }
+  });
+
+  // Close sidebar when clicking overlay
+  if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', () => {
+      sidebar.classList.remove('active');
+      sidebarOverlay.classList.remove('active');
+    });
+  }
+
+  // Close sidebar when navigating on mobile
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (window.innerWidth <= 768) {
+        sidebar.classList.remove('active');
+        sidebarOverlay.classList.remove('active');
+      }
+    });
+  });
+  // Navigation buttons
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigate(btn.dataset.view);
+      // Close mobile sidebar after navigation
+      if (window.innerWidth <= 768) {
+        closeMobileSidebar();
+      }
+    });
+  });
+
+  // Desktop sidebar toggle (inside sidebar)
+
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', () => {
+      if (window.innerWidth > 768) {
+        // Desktop: collapse/expand sidebar
+        document.getElementById('sidebar').classList.toggle('collapsed');
+      } else {
+        // Mobile: toggle sidebar visibility
+        toggleMobileSidebar();
+      }
+    });
+  }
+
+  // Mobile hamburger menu button (in topbar)
+  const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+  if (mobileMenuBtn) {
+    mobileMenuBtn.addEventListener('click', () => {
+      toggleMobileSidebar();
+    });
+  }
+
+  // Sidebar overlay click to close
+ 
+  if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', () => {
+      closeMobileSidebar();
+    });
+  }
+
+  // Modal controls
   document.getElementById('modalClose').addEventListener('click', () => closeModal(null));
   document.getElementById('modalCancel').addEventListener('click', () => closeModal(null));
   document.getElementById('modalConfirm').addEventListener('click', () => closeModal(true));
   document.getElementById('modalOverlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modalOverlay')) closeModal(null);
   });
+
+  // ... rest of your existing event listeners ...
   document.getElementById('addTruckBtn').addEventListener('click', addTruck);
   document.getElementById('backToTrucks').addEventListener('click', () => {
     document.getElementById('truckDetail').classList.add('hidden');
@@ -1906,13 +2209,48 @@ function bindEvents() {
   });
   document.getElementById('addCustomerBtn').addEventListener('click', addCustomer);
   document.getElementById('addMillBtn').addEventListener('click', addMill);
+
+  // Profit report controls
   document.getElementById('profitEntityType').addEventListener('change', () => {
     updateProfitEntityOptions();
     document.getElementById('profitResult').classList.add('hidden');
   });
   document.getElementById('calcProfitBtn').addEventListener('click', renderProfitResult);
+
+}
+// ============================================================
+// MOBILE SIDEBAR HELPERS (add these new functions)
+// ============================================================
+function toggleMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+
+  sidebar.classList.toggle('active');
+  overlay.classList.toggle('active');
+  if (mobileMenuBtn) mobileMenuBtn.classList.toggle('active');
+
+  // Prevent body scroll when sidebar is open
+  document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
 }
 
+function closeMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+
+  sidebar.classList.remove('active');
+  overlay.classList.remove('active');
+  if (mobileMenuBtn) mobileMenuBtn.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+// Handle window resize
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 768) {
+    closeMobileSidebar();
+  }
+});
 // ============================================================
 // INIT
 // ============================================================
@@ -1920,4 +2258,13 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDB();
   bindEvents();
   navigate('dashboard');
+})
+// Add near end of app.js, after DOMContentLoaded
+window.addEventListener('resize', () => {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  if (window.innerWidth > 768) {
+    sidebar.classList.remove('active');
+    overlay.classList.remove('active');
+  }
 });
