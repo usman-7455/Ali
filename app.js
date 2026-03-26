@@ -17,7 +17,35 @@
 'use strict';
 
 // ============================================================
-// DATA STORE
+// INDEXEDDB CONFIGURATION
+// ============================================================
+const IDB_NAME = 'hieracost_db';
+const IDB_VERSION = 1;
+const IDB_STORE = 'db_store';
+const IDB_KEY = 'main_db';
+
+let idb = null; // IndexedDB connection
+
+// Initialize IndexedDB connection
+function initIndexedDB() {
+  return new Promise((resolve, reject) => {
+    if (idb) return resolve(idb);
+
+    const request = indexedDB.open(IDB_NAME, IDB_VERSION);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => { idb = request.result; resolve(idb); };
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    };
+  });
+}
+// ============================================================
+// DATA STORE (global)
 // ============================================================
 let DB = {
   trucks: {},
@@ -28,16 +56,142 @@ let DB = {
     customer: 1, mill: 1
   }
 };
-
-function loadDB() {
+// ============================================================
+// LOAD DB (async — populates global DB variable)
+// ============================================================
+async function loadDB() {
+  
   try {
-    const saved = localStorage.getItem('hieracost_db');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      DB = migrateWeightFields(parsed);
-    }
-  } catch (e) { /* ignore */ }
+    await initIndexedDB();
+
+    const tx = idb.transaction([IDB_STORE], 'readonly');
+    const store = tx.objectStore(IDB_STORE);
+    const request = store.get(IDB_KEY);
+
+    return new Promise((resolve) => {
+      request.onsuccess = () => {
+        const saved = request.result;
+        if (saved) {
+          DB = migrateWeightFields(saved);
+        }
+        resolve(DB);
+      };
+      request.onerror = () => {
+        console.warn('IndexedDB load failed, using empty DB:', request.error);
+        resolve(DB);
+      };
+    });
+  } catch (e) {
+    console.warn('IndexedDB init failed, using empty DB:', e);
+    return DB;
+  }
 }
+
+// ============================================================
+// SAVE DB (async — call after mutations)
+// ============================================================
+async function saveDB() {
+  try {
+    if (!idb) await initIndexedDB();
+
+    const tx = idb.transaction([IDB_STORE], 'readwrite');
+    const store = tx.objectStore(IDB_STORE);
+    const request = store.put(DB, IDB_KEY);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve();
+      request.onerror = () => {
+        console.error('IndexedDB save failed:', request.error);
+        reject(request.error);
+      };
+    });
+  } catch (e) {
+    console.error('IndexedDB save error:', e);
+    // Fail silently to avoid breaking app flow
+  }
+}
+
+// ============================================================
+// BACKUP / RESTORE FUNCTIONALITY
+// ============================================================
+
+// Export DB to JSON file (backup)
+function exportBackup() {
+  try {
+    const dataStr = JSON.stringify(DB, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hieracost_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast('Backup exported successfully!', 'success');
+  } catch (e) {
+    console.error('Export failed:', e);
+    toast('Failed to export backup', 'error');
+  }
+}
+
+// Import DB from JSON file (restore)
+async function importBackup(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = async (e) => {
+      try {
+        const imported = JSON.parse(e.target.result);
+
+        // Basic validation
+        if (!imported.trucks || !imported.nextId) {
+          throw new Error('Invalid backup file structure');
+        }
+
+        // Confirm overwrite
+        const confirmed = await openModal(
+          'Confirm Restore',
+          `<div style="color:var(--text-sec);font-size:13px">
+            This will <strong style="color:var(--red)">replace all current data</strong> with the backup.
+            <br><br>
+            <span style="color:var(--yellow)">⚠ Make sure you've exported a backup first!</span>
+          </div>`,
+          'Restore Backup'
+        );
+
+        if (!confirmed) {
+          resolve(false);
+          return;
+        }
+
+        // Migrate and replace
+        DB = migrateWeightFields(imported);
+        await saveDB();
+
+        // Refresh UI
+        navigate('dashboard');
+        toast('Backup restored successfully!', 'success');
+        resolve(true);
+
+      } catch (err) {
+        console.error('Import failed:', err);
+        toast('Invalid backup file', 'error');
+        reject(err);
+      }
+    };
+
+    reader.onerror = () => {
+      toast('Failed to read file', 'error');
+      reject(reader.error);
+    };
+
+    reader.readAsText(file);
+  });
+}
+
 
 function migrateWeightFields(db) {
   for (const truck of Object.values(db.trucks || {})) {
@@ -74,36 +228,32 @@ function migrateWeightFields(db) {
   return db;
 }
 
-function saveDB() {
-  try {
-    localStorage.setItem('hieracost_db', JSON.stringify(DB));
-  } catch (e) { /* ignore */ }
-}
+
 
 // ============================================================
 // ID GENERATORS
 // ============================================================
-function genId(type) {
+async function genId(type) {
   const id = `${type}_${DB.nextId[type]++}`;
-  saveDB();
+  await saveDB(); // Save after ID increment
   return id;
 }
 
 // ============================================================
 // ENTITY FACTORIES
 // ============================================================
-function makeTruck(name, description = '') {
+async function makeTruck(name, description = '') {
   return {
-    id: genId('truck'),
+    id: await genId('truck'),
     name,
     description,
     lots: {}
   };
 }
 
-function makeLot(name, initial_cost = 0, mill_id = null, total_weight = 0) {
+async function makeLot(name, initial_cost = 0, mill_id = null, total_weight = 0) {
   return {
-    id: genId('lot'),
+    id: await genId('lot'),
     name,
     initial_cost,
     mill_id,
@@ -114,9 +264,9 @@ function makeLot(name, initial_cost = 0, mill_id = null, total_weight = 0) {
   };
 }
 
-function makeItem(name, initial_cost = 0, total_weight = null) {
+async function makeItem(name, initial_cost = 0, total_weight = null) {
   return {
-    id: genId('item'),
+    id: await genId('item'),
     name,
     initial_cost,
     total_weight: total_weight !== null && total_weight !== '' ? Number(total_weight) : null,
@@ -128,9 +278,9 @@ function makeItem(name, initial_cost = 0, total_weight = null) {
   };
 }
 
-function makeSubitem(name, initial_cost = 0, total_weight = null) {
+async function makeSubitem(name, initial_cost = 0, total_weight = null) {
   return {
-    id: genId('subitem'),
+    id: await genId('subitem'),
     name,
     initial_cost,
     total_weight: total_weight !== null && total_weight !== '' ? Number(total_weight) : null,
@@ -141,16 +291,16 @@ function makeSubitem(name, initial_cost = 0, total_weight = null) {
   };
 }
 
+async function makeCustomer(name, phone = '') {
+  return { id: await genId('customer'), name, phone };
+}
+
+async function makeMill(name) {
+  return { id: await genId('mill'), name };
+}
+
 function makeProcessingRecord(type, worker, labour_fee) {
   return { type, worker, labour_fee: Number(labour_fee) };
-}
-
-function makeCustomer(name, phone = '') {
-  return { id: genId('customer'), name, phone };
-}
-
-function makeMill(name) {
-  return { id: genId('mill'), name };
 }
 
 // ============================================================
@@ -515,13 +665,13 @@ function findSubitem(subitemId) {
   return {};
 }
 
-function getOrCreateMill(name) {
+async function getOrCreateMill(name) {
   const trimmed = name.trim();
   const existing = Object.values(DB.mills).find(
     m => m.name.toLowerCase() === trimmed.toLowerCase()
   );
   if (existing) return existing;
-  const mill = makeMill(trimmed);
+  const mill = await makeMill(trimmed);
   DB.mills[mill.id] = mill;
   saveDB();
   return mill;
@@ -739,6 +889,8 @@ function renderTrucks() {
   }
   list.innerHTML = '';
   trucks.forEach(truck => {
+    if (!truck || typeof truck !== 'object') return;
+    truck.lots = truck.lots || {};
     const { total_cost } = calculate_truck(truck);
     const lotCount = Object.keys(truck.lots).length;
     const card = document.createElement('div');
@@ -1821,7 +1973,7 @@ async function addTruck() {
   if (!result) return;
   const v = getModalValues();
   if (!v.name) { toast('Name required', 'warning'); return; }
-  const truck = makeTruck(v.name, v.description);
+  const truck = await makeTruck(v.name, v.description);
   DB.trucks[truck.id] = truck;
   saveDB();
   toast(`Truck "${truck.name}" added`, 'success');
@@ -1857,10 +2009,10 @@ async function addLot() {
   if (!v.name) { toast('Name required', 'warning'); return; }
   let mill_id = null;
   if (v.mill_name && v.mill_name.trim()) {
-    const mill = getOrCreateMill(v.mill_name);
+    const mill = await getOrCreateMill(v.mill_name);
     mill_id = mill.id;
   }
-  const lot = makeLot(v.name, Number(v.initial_cost) || 0, mill_id, Number(v.total_weight) || 0);
+  const lot = await makeLot(v.name, Number(v.initial_cost) || 0, mill_id, Number(v.total_weight) || 0);
   truck.lots[lot.id] = lot;
   saveDB();
   toast(`Lot "${lot.name}" added`, 'success');
@@ -1912,7 +2064,7 @@ async function addItem() {
     }
   }
 
-  const item = makeItem(v.name, newCost, newWeight);
+  const item = await makeItem(v.name, newCost, newWeight);
   lot.items[item.id] = item;
   saveDB();
   toast(`Item "${item.name}" added`, 'success');
@@ -1966,7 +2118,7 @@ async function addSubitem() {
     }
   }
 
-  const sub = makeSubitem(v.name, newCost, newWeight);
+  const sub = await makeSubitem(v.name, newCost, newWeight);
   item.subitems[sub.id] = sub;
   saveDB();
   toast(`Subitem "${sub.name}" added`, 'success');
@@ -1987,7 +2139,7 @@ async function addCustomer() {
   if (!result) return;
   const v = getModalValues();
   if (!v.name) { toast('Name required', 'warning'); return; }
-  const c = makeCustomer(v.name, v.phone);
+  const c = await makeCustomer(v.name, v.phone);
   DB.customers[c.id] = c;
   saveDB();
   toast(`Customer "${c.name}" added`, 'success');
@@ -2004,7 +2156,7 @@ async function addMill() {
   if (!result) return;
   const v = getModalValues();
   if (!v.name) { toast('Name required', 'warning'); return; }
-  const mill = getOrCreateMill(v.name);
+  const mill = await getOrCreateMill(v.name);
   toast(`Mill "${mill.name}" ${DB.mills[mill.id] ? 'already exists, reused.' : 'added.'}`, 'success');
   renderMills();
 }
@@ -2022,132 +2174,18 @@ function emptyState(icon, text) {
 // ============================================================
 // EVENT BINDINGS
 // ============================================================
-// ============================================================
-// EVENT BINDINGS
-// ============================================================
 function bindEvents() {
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => navigate(btn.dataset.view));
-  });
-
-  document.getElementById('sidebarToggle').addEventListener('click', () => {
-    document.getElementById('sidebar').classList.toggle('collapsed');
-  });
-
-  document.getElementById('modalClose').addEventListener('click', () => closeModal(null));
-  document.getElementById('modalCancel').addEventListener('click', () => closeModal(null));
-  document.getElementById('modalConfirm').addEventListener('click', () => closeModal(true));
-
-  document.getElementById('modalOverlay').addEventListener('click', e => {
-    if (e.target === document.getElementById('modalOverlay')) closeModal(null);
-  });
-
-  document.getElementById('addTruckBtn').addEventListener('click', addTruck);
-
-  document.getElementById('backToTrucks').addEventListener('click', () => {
-    document.getElementById('truckDetail').classList.add('hidden');
-    document.getElementById('truckList').classList.remove('hidden');
-    document.getElementById('breadcrumb').textContent = '';
-  });
-
-  document.getElementById('addLotBtn').addEventListener('click', addLot);
-
-  document.getElementById('backToLots').addEventListener('click', () => {
-    currentLotId = null;
-    document.getElementById('lotDetail').classList.add('hidden');
-    document.getElementById('truckDetail').classList.remove('hidden');
-  });
-
-  document.getElementById('addLotProcessingBtn').addEventListener('click', () => {
-    addProcessingTo('lot', currentLotId);
-  });
-
-  document.getElementById('addItemBtn').addEventListener('click', addItem);
-
-  document.getElementById('backToItems').addEventListener('click', () => {
-    currentItemId = null;
-    document.getElementById('itemDetail').classList.add('hidden');
-    document.getElementById('lotDetail').classList.remove('hidden');
-    const { lot } = findLot(currentLotId);
-    if (lot) renderLotInfoGrid(lot);
-  });
-
-  document.getElementById('addItemProcessingBtn').addEventListener('click', () => {
-    addProcessingTo('item', currentItemId);
-  });
-
-  document.getElementById('addSubitemBtn').addEventListener('click', addSubitem);
-
-  document.getElementById('sellItemBtn').addEventListener('click', () => {
-    sellEntity('item', currentItemId);
-  });
-
-  document.getElementById('addCustomerBtn').addEventListener('click', addCustomer);
-  document.getElementById('addMillBtn').addEventListener('click', addMill);
-
-  // Profit report: entity type change → refresh options + hide result
-  document.getElementById('profitEntityType').addEventListener('change', () => {
-    updateProfitEntityOptions();
-    document.getElementById('profitResult').classList.add('hidden');
-  });
-
-  // Profit report: calculate button
-  document.getElementById('calcProfitBtn').addEventListener('click', renderProfitResult);
-  // Add this inside bindEvents(), after existing listeners:
-
-  // Mobile sidebar overlay toggle
-  const sidebarOverlay = document.getElementById('sidebarOverlay');
   const sidebar = document.getElementById('sidebar');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
   const sidebarToggle = document.getElementById('sidebarToggle');
 
-  // Toggle sidebar on mobile
-  sidebarToggle.addEventListener('click', () => {
-    if (window.innerWidth <= 768) {
-      sidebar.classList.toggle('active');
-      sidebarOverlay.classList.toggle('active');
-    } else {
-      sidebar.classList.toggle('collapsed');
-    }
-  });
-
-  // Close sidebar when clicking overlay
-  if (sidebarOverlay) {
-    sidebarOverlay.addEventListener('click', () => {
-      sidebar.classList.remove('active');
-      sidebarOverlay.classList.remove('active');
-    });
-  }
-
-  // Close sidebar when navigating on mobile
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (window.innerWidth <= 768) {
-        sidebar.classList.remove('active');
-        sidebarOverlay.classList.remove('active');
-      }
-    });
-  });
-  // Navigation buttons
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      navigate(btn.dataset.view);
-      // Close mobile sidebar after navigation
-      if (window.innerWidth <= 768) {
-        closeMobileSidebar();
-      }
-    });
-  });
-
-  // Desktop sidebar toggle (inside sidebar)
-
+  // Sidebar toggle — handles both mobile and desktop in one listener
   if (sidebarToggle) {
     sidebarToggle.addEventListener('click', () => {
-      if (window.innerWidth > 768) {
-        // Desktop: collapse/expand sidebar
-        document.getElementById('sidebar').classList.toggle('collapsed');
-      } else {
-        // Mobile: toggle sidebar visibility
+      if (window.innerWidth <= 768) {
         toggleMobileSidebar();
+      } else {
+        sidebar.classList.toggle('collapsed');
       }
     });
   }
@@ -2155,18 +2193,21 @@ function bindEvents() {
   // Mobile hamburger menu button (in topbar)
   const mobileMenuBtn = document.getElementById('mobileMenuBtn');
   if (mobileMenuBtn) {
-    mobileMenuBtn.addEventListener('click', () => {
-      toggleMobileSidebar();
-    });
+    mobileMenuBtn.addEventListener('click', () => toggleMobileSidebar());
   }
 
   // Sidebar overlay click to close
- 
   if (sidebarOverlay) {
-    sidebarOverlay.addEventListener('click', () => {
-      closeMobileSidebar();
-    });
+    sidebarOverlay.addEventListener('click', () => closeMobileSidebar());
   }
+
+  // Navigation buttons — single registration that handles navigate + mobile close
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigate(btn.dataset.view);
+      if (window.innerWidth <= 768) closeMobileSidebar();
+    });
+  });
 
   // Modal controls
   document.getElementById('modalClose').addEventListener('click', () => closeModal(null));
@@ -2176,13 +2217,15 @@ function bindEvents() {
     if (e.target === document.getElementById('modalOverlay')) closeModal(null);
   });
 
-  // ... rest of your existing event listeners ...
+  // Trucks
   document.getElementById('addTruckBtn').addEventListener('click', addTruck);
   document.getElementById('backToTrucks').addEventListener('click', () => {
     document.getElementById('truckDetail').classList.add('hidden');
     document.getElementById('truckList').classList.remove('hidden');
     document.getElementById('breadcrumb').textContent = '';
   });
+
+  // Lots
   document.getElementById('addLotBtn').addEventListener('click', addLot);
   document.getElementById('backToLots').addEventListener('click', () => {
     currentLotId = null;
@@ -2192,6 +2235,8 @@ function bindEvents() {
   document.getElementById('addLotProcessingBtn').addEventListener('click', () => {
     addProcessingTo('lot', currentLotId);
   });
+
+  // Items
   document.getElementById('addItemBtn').addEventListener('click', addItem);
   document.getElementById('backToItems').addEventListener('click', () => {
     currentItemId = null;
@@ -2207,16 +2252,47 @@ function bindEvents() {
   document.getElementById('sellItemBtn').addEventListener('click', () => {
     sellEntity('item', currentItemId);
   });
+
+  // Customers & Mills
   document.getElementById('addCustomerBtn').addEventListener('click', addCustomer);
   document.getElementById('addMillBtn').addEventListener('click', addMill);
 
-  // Profit report controls
+  // Profit report
   document.getElementById('profitEntityType').addEventListener('change', () => {
     updateProfitEntityOptions();
     document.getElementById('profitResult').classList.add('hidden');
   });
   document.getElementById('calcProfitBtn').addEventListener('click', renderProfitResult);
 
+  // Backup button in sidebar footer
+  const sidebarFooter = document.querySelector('.sidebar-footer');
+  if (sidebarFooter) {
+    const backupBtn = document.createElement('button');
+    backupBtn.className = 'btn btn-ghost btn-sm';
+    backupBtn.innerHTML = '💾 Backup';
+    backupBtn.style.marginTop = '8px';
+    backupBtn.onclick = exportBackup;
+    sidebarFooter.appendChild(backupBtn);
+  }
+
+  // Restore button in profit view toolbar
+  const profitControls = document.querySelector('.profit-controls');
+  if (profitControls) {
+    const restoreBtn = document.createElement('button');
+    restoreBtn.className = 'btn btn-ghost btn-sm';
+    restoreBtn.innerHTML = '📥 Restore';
+    restoreBtn.onclick = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) importBackup(file);
+      };
+      input.click();
+    };
+    profitControls.appendChild(restoreBtn);
+  }
 }
 // ============================================================
 // MOBILE SIDEBAR HELPERS (add these new functions)
@@ -2258,13 +2334,4 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDB();
   bindEvents();
   navigate('dashboard');
-})
-// Add near end of app.js, after DOMContentLoaded
-window.addEventListener('resize', () => {
-  const sidebar = document.getElementById('sidebar');
-  const overlay = document.getElementById('sidebarOverlay');
-  if (window.innerWidth > 768) {
-    sidebar.classList.remove('active');
-    overlay.classList.remove('active');
-  }
 });
