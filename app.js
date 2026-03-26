@@ -2330,8 +2330,8 @@ window.addEventListener('resize', () => {
 // ============================================================
 // INIT
 // ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-  loadDB();
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadDB();   // ← wait for data before rendering
   bindEvents();
   navigate('dashboard');
 });
